@@ -10,7 +10,7 @@ export default class MemosClientV1 implements MemosClient {
   private nextPageToken: string | null = null; // Store next page token
 
   constructor(host: string, token: string, openId?: string) {
-    this.host = host;
+    this.host = host.replace(/\/+$/, ''); // Strip trailing slashes
     this.token = token;
     this.openId = openId;
   }
@@ -18,16 +18,13 @@ export default class MemosClientV1 implements MemosClient {
   // Generate a stable numeric ID from alphanumeric string
   private generateNumericId(name: string): number {
     const id = name.split('/').pop() || '';
-    // Use a simple hash function to convert string to number
     let hash = 0;
     for (let i = 0; i < id.length; i++) {
       const char = id.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
       hash = hash & hash; // Convert to 32-bit integer
     }
-    // Ensure positive number
     const numericId = Math.abs(hash);
-    // Store mapping for reverse lookup
     this.idMap.set(numericId, name);
     return numericId;
   }
@@ -37,23 +34,14 @@ export default class MemosClientV1 implements MemosClient {
     method: Method,
     payload: any = null
   ): Promise<T> {
-    console.log("memos-sync: V1 API request - method:", method, "url:", url.toString());
-    console.log("memos-sync: V1 API request - headers:", {
-      "Authorization": `Bearer ${this.token ? '***' : 'NO_TOKEN'}`,
-      "Accept": "application/json",
-      "Content-Type": "application/json"
-    });
-    
     try {
       if (this.openId) {
         url.searchParams.append("openId", String(this.openId));
-        console.log("memos-sync: V1 API - Added openId to URL");
       }
-      
-      const config = {
+
+      const config: any = {
         method: method,
         url: url.toString(),
-        data: payload,
         headers: {
           "Authorization": `Bearer ${this.token}`,
           "Accept": "application/json",
@@ -62,34 +50,34 @@ export default class MemosClientV1 implements MemosClient {
         decompress: true,
         responseType: 'json' as const
       };
-      
-      console.log("memos-sync: V1 API - Making request...");
+
+      // Only include data for non-GET requests
+      if (payload !== null && method !== "GET") {
+        config.data = payload;
+      }
+
       const resp: AxiosResponse<T> = await axios(config);
-      
-      console.log("memos-sync: V1 API response - status:", resp.status);
-      console.log("memos-sync: V1 API response - headers:", resp.headers);
-      
+
       if (resp.status >= 400) {
         // @ts-ignore
         const errorMsg = resp.message || "Error occurred";
-        console.error("memos-sync: V1 API error response:", errorMsg);
+        console.error("memos-sync: API error:", errorMsg);
         throw errorMsg;
       } else if (resp.status >= 300) {
-        console.error("memos-sync: V1 API unexpected status:", resp.status);
-        throw "Something wrong!";
-      } 
-      
-      console.log("memos-sync: V1 API request successful");
+        throw "Unexpected redirect from memos server";
+      }
+
       return resp.data;
     } catch (error) {
-      console.error("memos-sync: V1 API request failed:", error);
       if (axios.isAxiosError(error)) {
-        console.error("memos-sync: Axios error details:", {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-          headers: error.response?.headers
-        });
+        const status = error.response?.status;
+        const msg = error.response?.data?.message || error.message;
+        console.error(`memos-sync: API request failed (${status}):`, msg);
+        if (status === 401 || status === 403) {
+          throw "Authentication failed - please check your Memos token";
+        }
+      } else {
+        console.error("memos-sync: API request failed:", error);
       }
       throw "Cannot connect to memos server";
     }
@@ -101,50 +89,35 @@ export default class MemosClientV1 implements MemosClient {
     offset: number,
     includeArchive: boolean,
   ): Promise<Memo[]> {
-    console.log("memos-sync: V1 getMemos called - limit:", limit, "offset:", offset, "includeArchive:", includeArchive);
     const url = new URL(`${this.host}/api/v1/memos`);
-    // V1 API doesn't use filter for archive status
-    // It returns all memos by default, we'll filter in the response
-    
-    // For V1 API, we'll fetch with the requested limit
-    // The plugin's pagination logic will handle multiple calls
     url.searchParams.append("pageSize", limit.toString());
-    
-    // V1 API uses pageToken for pagination
-    // Since the plugin expects numeric offset, we need to handle this
-    // For now, we'll return empty array for offset > 0 if we don't have more data
+
     if (offset > 0) {
-      // If we're beyond the first page and don't have a token, return empty
       if (!this.nextPageToken) {
-        console.log("memos-sync: V1 - No nextPageToken available for offset > 0, returning empty array");
         return [];
       }
       url.searchParams.append("pageToken", this.nextPageToken);
     }
-    
-    console.log("memos-sync: V1 API request URL:", url.toString());
-    
+
     try {
-      const response = await this.request<any>(url, "GET", {});
-      console.log("memos-sync: V1 API raw response:", JSON.stringify(response, null, 2));
-      
+      const response = await this.request<any>(url, "GET", null);
+
       let memos = response.memos || [];
-      console.log("memos-sync: V1 - Retrieved", memos.length, "memos from API");
-      
+      if (!Array.isArray(memos)) {
+        console.warn("memos-sync: unexpected response format, memos is not an array");
+        memos = [];
+      }
+
       // Store next page token for subsequent calls
       this.nextPageToken = response.nextPageToken || null;
-      console.log("memos-sync: V1 - Next page token:", this.nextPageToken);
-      
+
       // Filter out archived memos if needed
       if (!includeArchive) {
-        const beforeFilter = memos.length;
         memos = memos.filter((memo: any) => memo.state === 'NORMAL');
-        console.log("memos-sync: V1 - Filtered out", beforeFilter - memos.length, "archived memos");
       }
-      
+
       // Transform V1 format to expected format
-      const transformedMemos = memos.map((memo: any, index: number) => ({
-        // V1 uses alphanumeric IDs, we'll use a hash or index for compatibility
+      const transformedMemos = memos.map((memo: any) => ({
         id: this.generateNumericId(memo.name),
         content: memo.content,
         createdTs: Math.floor(new Date(memo.createTime).getTime() / 1000),
@@ -158,14 +131,13 @@ export default class MemosClientV1 implements MemosClient {
         creatorUsername: memo.creator,
         resourceList: memo.resources || [],
         relationList: memo.relations || [],
-        // Store the original name for updates
         _v1Name: memo.name
       }));
-      
-      console.log("memos-sync: V1 - Returning", transformedMemos.length, "transformed memos");
+
+      console.log(`memos-sync: fetched ${transformedMemos.length} memos`);
       return transformedMemos;
     } catch (error) {
-      console.error("memos-sync: V1 getMemos error:", error);
+      console.error("memos-sync: getMemos error:", error);
       throw new Error(`Failed to get memos, ${error}`);
     }
   }
@@ -174,7 +146,6 @@ export default class MemosClientV1 implements MemosClient {
     memoId: number,
     payload: Record<string, any>
   ): Promise<Memo> {
-    // Get the V1 name from our ID mapping
     const v1Name = this.idMap.get(memoId);
     if (!v1Name) {
       throw new Error(`Memo ID ${memoId} not found in mapping`);
@@ -182,14 +153,13 @@ export default class MemosClientV1 implements MemosClient {
     const v1Id = v1Name.split('/').pop();
     const url = new URL(`${this.host}/api/v1/memos/${v1Id}`);
     const updatePayload: any = {};
-    
+
     if (payload.content) updatePayload.content = payload.content;
     if (payload.visibility) updatePayload.visibility = payload.visibility.toUpperCase();
     if (payload.rowStatus === "ARCHIVED") updatePayload.row_status = "ARCHIVED";
-    
+
     try {
       const response = await this.request<any>(url, "PATCH", updatePayload);
-      // Transform V1 response to expected format
       return {
         id: this.generateNumericId(response.name),
         content: response.content,
@@ -218,7 +188,6 @@ export default class MemosClientV1 implements MemosClient {
     const url = new URL(`${this.host}/api/v1/memos`);
     try {
       const response = await this.request<any>(url, "POST", payload);
-      // Transform V1 response to expected format
       return {
         id: this.generateNumericId(response.name),
         content: response.content,
