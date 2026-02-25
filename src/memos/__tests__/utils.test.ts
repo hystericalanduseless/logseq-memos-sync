@@ -4,7 +4,7 @@ import { memoContentGenerate } from "../utils";
 import { Memo } from "../type";
 
 describe("memos to logseq format", () => {
-  it("code body should have nothing changed", () => {
+  it("code body should have nothing changed", async () => {
     const codeBody = `
 \`\`\`python
 
@@ -29,11 +29,11 @@ def hello():
       relationList: [],
     };
 
-    const res = memoContentGenerate(memo, "host", "TODO");
+    const res = await memoContentGenerate(memo, "host", "TODO");
     expect(res[0]["content"]).toBe(codeBody);
   });
 
-  it("public resources could rending without openId", () => {
+  it("public resources could rending without openId", async () => {
     const memo: Memo = {
       id: 1,
       rowStatus: "NORMAL",
@@ -61,12 +61,12 @@ def hello():
       relationList: [],
     };
 
-    const res = memoContentGenerate(memo, "host", "TODO");
+    const res = await memoContentGenerate(memo, "host", "TODO");
     expect(res[0].children?.length).toBe(1);
     expect(res[0].children![0].content).toBe("![memos.png](host/o/r/1)");
   });
 
-  it("private resources have external link should using external link", () => {
+  it("private resources have external link should using external link", async () => {
     const memo: Memo = {
       id: 1,
       rowStatus: "NORMAL",
@@ -94,12 +94,12 @@ def hello():
       relationList: [],
     };
 
-    const res = memoContentGenerate(memo, "host", "TODO");
+    const res = await memoContentGenerate(memo, "host", "TODO");
     expect(res[0].children?.length).toBe(1);
     expect(res[0].children![0].content).toBe("![memos.png](link)");
   });
 
-  it("public resources have external link should using external link", () => {
+  it("public resources have external link should using external link", async () => {
     const memo: Memo = {
       id: 1,
       rowStatus: "NORMAL",
@@ -127,7 +127,7 @@ def hello():
       relationList: [],
     };
 
-    const res = memoContentGenerate(memo, "host", "TODO");
+    const res = await memoContentGenerate(memo, "host", "TODO");
     expect(res[0].children?.length).toBe(1);
     expect(res[0].children![0].content).toBe("![memos.png](link)");
   });

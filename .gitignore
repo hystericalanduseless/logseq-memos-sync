@@ -5,3 +5,4 @@ dist-ssr
 *.local
 memos-sync-test-graph/
 .env
+CONTEXT.md

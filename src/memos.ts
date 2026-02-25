@@ -9,7 +9,7 @@ import {
   memoContentGenerate,
   renderMemoParentBlockContent,
 } from "./memos/utils";
-import { Mode, Visibility } from "./settings";
+import { AttachmentMode, Mode, Visibility } from "./settings";
 import {
   sleep,
   tagFilterList,
@@ -35,6 +35,8 @@ class MemosSync {
   private host: string | undefined;
   private openId: string | undefined;
   private token: string | undefined;
+  private attachmentMode: AttachmentMode = AttachmentMode.Link;
+  private showUnavailableAttachment: boolean = false;
 
   constructor() {
     this.parseSetting();
@@ -47,21 +49,21 @@ class MemosSync {
     console.log("memos-sync: Starting sync process in mode:", mode);
     const { host, token, openId }: any = logseq.settings;
     console.log("memos-sync: Settings loaded - host:", host, "hasToken:", !!token, "hasOpenId:", !!openId);
-    
+
     if (!host || (!openId && !token)) {
       console.error("memos-sync: Missing required settings");
       logseq.UI.showMsg("Memos Setting up needed.");
       logseq.showSettingsUI();
       return;
     }
-    
+
     await this.choosingClient();
     if (this.memosClient === undefined || this.memosClient === null) {
       console.error("memos-sync: Failed to initialize Memos client");
       logseq.UI.showMsg("Memos Sync Setup issue", "error");
       return;
     }
-    
+
     console.log("memos-sync: Client initialized successfully");
     try {
       await this.sync();
@@ -102,13 +104,13 @@ class MemosSync {
 
     let maxMemoId = (await this.lastSyncId()) || -1;
     console.log("memos-sync: Last sync ID:", maxMemoId);
-    
+
     let newMaxMemoId = maxMemoId;
     let end = false;
     let cousor = 0;
     let totalProcessed = 0;
     let totalInserted = 0;
-    
+
     while (!end) {
       console.log("memos-sync: Fetching memos batch - offset:", cousor, "batchSize:", BATCH_SIZE);
       const memos = await this.memosClient!.getMemos(
@@ -154,7 +156,7 @@ class MemosSync {
       }
       cousor += BATCH_SIZE;
     }
-    
+
     console.log("memos-sync: Sync complete - processed:", totalProcessed, "inserted:", totalInserted);
     console.log("memos-sync: Saving new sync ID:", newMaxMemoId);
     await this.saveSyncId(newMaxMemoId);
@@ -205,8 +207,10 @@ class MemosSync {
         host,
         openId,
         token,
+        attachmentMode,
+        showUnavailableAttachment,
       }: any = logseq.settings;
-      
+
       console.log("memos-sync: Settings values:", {
         mode,
         customPage,
@@ -221,7 +225,7 @@ class MemosSync {
         hasOpenId: !!openId,
         hasToken: !!token
       });
-      
+
       this.choosingClient();
       this.mode = mode;
       this.autoSync = autoSync;
@@ -235,6 +239,8 @@ class MemosSync {
       this.host = host;
       this.openId = openId;
       this.token = token;
+      this.attachmentMode = attachmentMode || AttachmentMode.Link;
+      this.showUnavailableAttachment = showUnavailableAttachment || false;
 
       console.log("memos-sync: Settings parsed successfully");
       this.backgroundConfigChange();
@@ -312,7 +318,7 @@ class MemosSync {
         "memo-id": memo.id,
       },
     };
-    
+
     if (this.mode === Mode.CustomPage) {
       console.log("memos-sync: Using CustomPage mode - page:", this.customPage, "flat:", this.flat);
       if (this.flat) {
@@ -400,7 +406,7 @@ class MemosSync {
     const { preferredDateFormat, preferredTodo } =
       await logseq.App.getUserConfigs();
     console.log("memos-sync: User configs - dateFormat:", preferredDateFormat, "todo:", preferredTodo);
-    
+
     const parentBlock = await this.generateParentBlock(
       memo,
       preferredDateFormat
@@ -415,18 +421,21 @@ class MemosSync {
       throw new Error("Host or OpenId is undefined");
     }
 
-    const batchBlocks = memoContentGenerate(
+    const batchBlocks = await memoContentGenerate(
       memo,
       this.host,
       preferredTodo,
       !this.archiveMemoAfterSync &&
-        this.flat &&
-        memo.visibility.toLowerCase() === Visibility.Private.toLowerCase()
+      this.flat &&
+      memo.visibility.toLowerCase() === Visibility.Private.toLowerCase(),
+      this.attachmentMode,
+      this.showUnavailableAttachment,
+      (await logseq.App.getCurrentGraph())?.path || ""
     );
-    
+
     console.log("memos-sync: Generated batch blocks:", JSON.stringify(batchBlocks, null, 2));
     console.log("memos-sync: Inserting", batchBlocks.length, "blocks into parent UUID:", parentBlock.uuid);
-    
+
     try {
       const result = await logseq.Editor.insertBatchBlock(
         parentBlock.uuid,

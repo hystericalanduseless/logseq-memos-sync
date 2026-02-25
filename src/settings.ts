@@ -20,6 +20,12 @@ export enum Visibility {
   Private = "Private",
 }
 
+export enum AttachmentMode {
+  Disabled = "Disabled",
+  Link = "Link",
+  Download = "Download",
+}
+
 export default function settingSchema() {
   logseq.useSettingsSchema([
     {
@@ -107,6 +113,24 @@ export default function settingSchema() {
       description:
         "Only sync memos with this tag, leave it blank to sync all memos. You can use `|` to sync multiple tags, like `tag1|tag2` PS: without `#`",
       default: "",
+    },
+    {
+      key: "attachmentMode",
+      type: "enum",
+      title: "Attachment Sync",
+      description:
+        "Disabled: skip all attachments. Link: show remote images via URL. Download: save attachments with external links to local Logseq assets.",
+      default: "Link",
+      enumChoices: Object.values(AttachmentMode),
+      enumPicker: "radio",
+    },
+    {
+      key: "showUnavailableAttachment",
+      type: "boolean",
+      title: "Show Unavailable Attachment Notice",
+      description:
+        "Show 📎 placeholder for attachments that cannot be synced (private, no external link). Turn off for cleaner pages.",
+      default: false,
     },
     {
       key: "",

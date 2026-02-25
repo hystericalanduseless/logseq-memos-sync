@@ -129,7 +129,16 @@ export default class MemosClientV1 implements MemosClient {
         creatorId: parseInt(memo.creator.split('/').pop() || '0'),
         creatorName: memo.creator,
         creatorUsername: memo.creator,
-        resourceList: memo.resources || [],
+        resourceList: (memo.attachments || memo.resources || []).map((a: any) => ({
+          id: a.name?.split('/').pop() || a.id,
+          filename: a.filename,
+          externalLink: a.externalLink || '',
+          type: a.type,
+          size: parseInt(a.size) || a.size || 0,
+          linkedMemoAmount: 0,
+          updatedTs: 0,
+          createdTs: 0,
+        })),
         relationList: memo.relations || [],
         _v1Name: memo.name
       }));
@@ -172,7 +181,16 @@ export default class MemosClientV1 implements MemosClient {
         creatorId: parseInt(response.creator.split('/').pop() || '0'),
         creatorName: response.creator,
         creatorUsername: response.creator,
-        resourceList: response.resources || [],
+        resourceList: (response.attachments || response.resources || []).map((a: any) => ({
+          id: a.name?.split('/').pop() || a.id,
+          filename: a.filename,
+          externalLink: a.externalLink || '',
+          type: a.type,
+          size: parseInt(a.size) || a.size || 0,
+          linkedMemoAmount: 0,
+          updatedTs: 0,
+          createdTs: 0,
+        })),
         relationList: response.relations || []
       };
     } catch (error) {
@@ -200,7 +218,16 @@ export default class MemosClientV1 implements MemosClient {
         creatorId: parseInt(response.creator.split('/').pop() || '0'),
         creatorName: response.creator,
         creatorUsername: response.creator,
-        resourceList: response.resources || [],
+        resourceList: (response.attachments || response.resources || []).map((a: any) => ({
+          id: a.name?.split('/').pop() || a.id,
+          filename: a.filename,
+          externalLink: a.externalLink || '',
+          type: a.type,
+          size: parseInt(a.size) || a.size || 0,
+          linkedMemoAmount: 0,
+          updatedTs: 0,
+          createdTs: 0,
+        })),
         relationList: response.relations || []
       };
     } catch (error) {
