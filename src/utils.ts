@@ -58,27 +58,34 @@ export const getMemoId = (properties: Record<string, any>): number | null => {
   return null;
 };
 
-export const saveSyncStatus = async (lastSyncId: number) => {
-  console.log("memos-sync: Saving sync status - lastSyncId:", lastSyncId);
+export const saveSyncStatus = async (lastSyncTimestamp: number) => {
+  console.log("memos-sync: Saving sync status - lastSyncTimestamp:", lastSyncTimestamp);
   await logseq.updateSettings({
-    syncStatus: { lastSyncId: lastSyncId }
+    syncStatus: { lastSyncTimestamp: lastSyncTimestamp }
   });
   console.log("memos-sync: Sync status saved successfully");
 };
 
 export const fetchSyncStatus = async (
-): Promise<{ lastSyncId: number }> => {
+): Promise<{ lastSyncTimestamp: number; lastSyncId?: number }> => {
   try {
     const settings = logseq.settings;
     console.log("memos-sync: Fetching sync status from settings:", settings?.syncStatus);
-    if (settings?.syncStatus && typeof settings.syncStatus.lastSyncId === 'number') {
-      console.log("memos-sync: Found sync status:", settings.syncStatus);
-      return settings.syncStatus;
+    const status = settings?.syncStatus;
+    if (status) {
+      if (typeof status.lastSyncTimestamp === 'number') {
+        return { lastSyncTimestamp: status.lastSyncTimestamp };
+      }
+      // Backward compatibility: old settings used lastSyncId (which was a hashed ID, not useful)
+      // Reset to -1 to force a full re-sync with timestamp tracking
+      if (typeof status.lastSyncId === 'number') {
+        console.log("memos-sync: Migrating from lastSyncId to lastSyncTimestamp, will do full sync");
+        return { lastSyncTimestamp: -1, lastSyncId: status.lastSyncId };
+      }
     }
-    console.log("memos-sync: No sync status found, returning default");
-    return { lastSyncId: 0 };
+    return { lastSyncTimestamp: -1 };
   } catch (error) {
     console.error("memos-sync: Error fetching sync status:", error);
-    return { lastSyncId: 0 };
+    return { lastSyncTimestamp: -1 };
   }
 };

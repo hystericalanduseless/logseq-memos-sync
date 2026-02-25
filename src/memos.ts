@@ -79,12 +79,13 @@ class MemosSync {
     }
   }
 
-  private async lastSyncId(): Promise<number> {
-    return (await fetchSyncStatus()).lastSyncId;
+  private async lastSyncTimestamp(): Promise<number> {
+    const status = await fetchSyncStatus();
+    return status.lastSyncTimestamp;
   }
 
-  private async saveSyncId(memoId: number) {
-    await saveSyncStatus(memoId);
+  private async saveSyncTimestamp(ts: number) {
+    await saveSyncStatus(ts);
   }
 
   private async beforeSync() {
@@ -102,20 +103,21 @@ class MemosSync {
       await this.choosingClient();
     }
 
-    let maxMemoId = (await this.lastSyncId()) || -1;
-    console.log("memos-sync: Last sync ID:", maxMemoId);
+    let lastSyncTs = await this.lastSyncTimestamp();
+    console.log("memos-sync: Last sync timestamp:", lastSyncTs);
 
-    let newMaxMemoId = maxMemoId;
+    let newMaxTs = lastSyncTs;
     let end = false;
-    let cousor = 0;
+    let cursor = 0;
     let totalProcessed = 0;
     let totalInserted = 0;
+    let consecutiveOldCount = 0;
 
     while (!end) {
-      console.log("memos-sync: Fetching memos batch - offset:", cousor, "batchSize:", BATCH_SIZE);
+      console.log("memos-sync: Fetching memos batch - offset:", cursor, "batchSize:", BATCH_SIZE);
       const memos = await this.memosClient!.getMemos(
         BATCH_SIZE,
-        cousor,
+        cursor,
         this.includeArchive!
       );
       console.log("memos-sync: Retrieved", memos.length, "memos");
@@ -125,24 +127,36 @@ class MemosSync {
 
       for (const memo of filteredMemos) {
         totalProcessed++;
-        if (memo.id <= maxMemoId && memo.pinned === false) {
-          console.log("memos-sync: Reached already synced memo ID:", memo.id, "- stopping sync");
-          end = true;
-          break;
+
+        // Use createdTs for tracking instead of hashed ID
+        if (memo.createdTs > newMaxTs) {
+          newMaxTs = memo.createdTs;
         }
-        if (memo.id > newMaxMemoId) {
-          newMaxMemoId = memo.id;
+
+        // Check if this memo is older than last sync
+        if (memo.createdTs <= lastSyncTs && !memo.pinned) {
+          consecutiveOldCount++;
+          // Stop after seeing multiple consecutive old memos
+          if (consecutiveOldCount >= BATCH_SIZE) {
+            console.log("memos-sync: Reached", consecutiveOldCount, "consecutive old memos — stopping");
+            end = true;
+            break;
+          }
+          continue; // Skip to next memo but don't stop yet
         }
+
+        consecutiveOldCount = 0; // Reset counter when we see a new memo
+
+        // Check if already exists in Logseq (by memo-id property)
         const existMemo = await searchExistsMemo(memo.id);
         if (!existMemo) {
-          console.log("memos-sync: Inserting new memo ID:", memo.id);
+          console.log("memos-sync: Inserting new memo ID:", memo.id, "ts:", memo.createdTs);
           await this.insertMemo(memo);
           totalInserted++;
           if (
             this.archiveMemoAfterSync &&
             memo.visibility.toLowerCase() === Visibility.Private.toLowerCase()
           ) {
-            console.log("memos-sync: Archiving private memo ID:", memo.id);
             await this.archiveMemo(memo.id);
           }
         } else {
@@ -154,12 +168,12 @@ class MemosSync {
         end = true;
         break;
       }
-      cousor += BATCH_SIZE;
+      cursor += BATCH_SIZE;
     }
 
     console.log("memos-sync: Sync complete - processed:", totalProcessed, "inserted:", totalInserted);
-    console.log("memos-sync: Saving new sync ID:", newMaxMemoId);
-    await this.saveSyncId(newMaxMemoId);
+    console.log("memos-sync: Saving new sync timestamp:", newMaxTs);
+    await this.saveSyncTimestamp(newMaxTs);
   }
 
   public async autoSyncWhenStartLogseq() {
